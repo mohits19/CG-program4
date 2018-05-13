@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset=utf-8>
+		<title>Missile Command</title>
+		<style>
+			body { margin: 0; overflow: hidden;}
+			canvas{ background-image: url('textures/sky.jpg')}
+			#score{ position: absolute;	top: 10px; color: white; z-index: 100;	display:block; font-size: 24px}
+			#startB{ position: absolute; text-align: center;	top: 50%; left: 45%; background-color: white; color: black; z-index: 100;	display:block; font-size: 24px}
+			#title{ position: absolute; text-align: center;	top: 20%; left: 35%; color: yellow; z-index: 100;	display:block; font-size: 32px}
+			#stop{ position: absolute; text-align: center;	top: 40%; left: 40%; color: red; z-index: 100;	display:block; font-size: 32px}
+		</style>
+	</head>
+	<body>
+		<div id="score">Score: 0</div>
+
+		<p id="title" style=""> MISSILE COMMAND</p>
+		<button id="startB" type="button" onclick="render()">Start!</button>
+
+		<canvas id="myCanvas"></canvas>
+
+		<script src="js/three.js"></script>
+
+		<script>
+        // RENDERER
+				var canvas = document.getElementById('myCanvas');
+				var renderer = new THREE.WebGLRenderer({canvas: canvas, antialias : true});
+        renderer.setClearColor(0x000000);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // CAMERA
+				var fov = 45;
+				var aspect = window.innerWidth / window.innerHeight;
+        var camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 3000);
+				camera.position.z = 35;
+
+        // SCENE
+        var scene = new THREE.Scene();
+
+        // LIGHTS
+        var light = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(light);
+        var light1 = new THREE.PointLight(0xffffff, 0.5);
+        scene.add(light1);
+
+				// BACKGROUND
+				var background = new THREE.Mesh(
+					new THREE.PlaneGeometry(1000, 500, 10, 10),
+					new THREE.MeshLambertMaterial({map: new THREE.TextureLoader().load('textures/sky.jpg')})
+				);
+				background.position.z = -500;
+				scene.add(background);
+
+        // TERRAIN
+				var terrainGeometry = new THREE.PlaneGeometry(200, 100, 100);
+				var terrainMaterial = new THREE.MeshLambertMaterial({map: new THREE.TextureLoader().load('textures/forest.jpg')});
+				var terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+				terrain.rotation.x = -90 * Math.PI / 180;
+				terrain.position.y = -24;
+				scene.add(terrain);
+
+				// CITIES
+				var cityGeometry = new THREE.BoxGeometry(4, 2, 2);
+				var cityMaterial = new THREE.MeshLambertMaterial({map: new THREE.TextureLoader().load('textures/city.jpg')});
+				var cities = [];
+				for(var i=1; i<=6; i++){
+					var city = new THREE.Mesh(cityGeometry, cityMaterial);
+					//city.rotation.y = 45 * Math.PI / 180;
+					city.position.y = -10;
+
+					if(i == 1)	city.position.x = -18;
+					else if(i == 2)	city.position.x = -12;
+					else if(i == 3)	city.position.x = -6;
+					else if(i == 4)	city.position.x = 6;
+					else if(i == 5)	city.position.x = 12;
+					else if(i == 6)	city.position.x = 18;
+
+					scene.add(city);
+					cities.push(city);
+				}
+
+				// MISSILE BATTERIES
+				var batteryGeometry = new THREE.ConeGeometry(2, 4);
+				var batteryMaterial = new THREE.MeshLambertMaterial({color: 0x888888});
+				var batteries = [];
+				for(var i=1; i<=3; i++){
+					var battery = new THREE.Mesh(batteryGeometry, batteryMaterial);
+					battery.position.y = -9;
+
+					if(i == 1) battery.position.x = -25;
+					else if(i == 3) battery.position.x = 25;
+
+					scene.add(battery);
+					batteries.push(battery);
+				}
+
+				// MISSILE
+				var missileGeometry = new THREE.ConeGeometry(0.4, 1.5);
+				var missileMaterial = new THREE.MeshLambertMaterial({color: 0xAA0000});
+
+				// ANTIBALLISTIC MISSILES
+				var antiMissileGeometry = new THREE.ConeGeometry(0.4, 1.5);
+				var antiMissileMaterial = new THREE.MeshLambertMaterial({color: 0xCCCC00});
+
+				// DESTROYED CITY
+				var destroyedCityGeometry = new THREE.BoxGeometry(4, 0.5, 2);
+				var destroyedCityMaterial = new THREE.MeshLambertMaterial({map: new THREE.TextureLoader().load('textures/rubble.jpg')});
+
+				// EXPLOSION
+				var explosionGeometry = new THREE.SphereGeometry(0.6, 16, 16);
+				var explosionMaterial = new THREE.MeshLambertMaterial({map: new THREE.TextureLoader().load('textures/explosion.jpg')});
+
+				// SPACESHIPS
+				var spaceshipGeometry = new THREE.SphereGeometry(0.8, 16, 16);
+				var spaceshipMaterial = new THREE.MeshLambertMaterial({map: new THREE.TextureLoader().load('textures/spaceship.png')});
+
+				var Ylim = camera.position.z * Math.tan((fov/2) * Math.PI / 180);
+				var Xlim = Ylim * aspect;
+
+				// AUDIO
+				var listener = new THREE.AudioListener();
+				camera.add(listener);
+
+				var launchSound = new THREE.Audio(listener);
+				var launchAudioLoader = new THREE.AudioLoader();
+
+				var explosionSound = new THREE.Audio(listener);
+				var explosionAudioLoader = new THREE.AudioLoader();
+
+				var destroySound = new THREE.Audio(listener);
+				var destroyAudioLoader = new THREE.AudioLoader();
+
+				var startSound = new THREE.Audio(listener);
+				var startAudioLoader = new THREE.AudioLoader();
+
+				// RENDER LOOP
+
+				var missiles = [];									// array of missiles
+				var antiMissiles = [];							// array of anti-ballistic missiles
+				var explosions = [];								// array of explosions
+				var spaceships = [];								// array of spaceships
+
+				var count = 0;											// count of render() calls
+
+				var missileSpeed = 0.05;						// speed of missiles
+				var missileInterval = 100;					// interval between missile launches
+
+				var antiMissileSpeed = 1;						// speed of anti-missiles
+
+				var splitInterval = missileInterval * 10;				// interval between missile splits
+
+				var spaceshipInterval = missileInterval * 15;		// interval between spaceships
+				var spaceshipSpeed = 0.1;												// speed of spaceships
+
+				var targets = [];										// all targets for descending missiles (cities and batteries)
+				targets.push(...cities);
+				targets.push(...batteries);
+
+				var sources = [];										// all sources of anti-missiles (batteries)
+				sources.push(...batteries);
+
+				var score = 0;
+
+        //render();
+				var id, removeMissileIdx, removeAntiMissileIdx, removeExplosionsIdx, removeSpaceshipIdx;
+				var missile, randomMissile, explosion, destroyedCity, antiMissile, source, spaceship;
+
+        function render(){
+					// remove start button
+					if(document.getElementById("startB")){
+							document.body.removeChild(document.getElementById("startB"));
+							document.body.removeChild(document.getElementById("title"));
+							startAudioLoader.load('sounds/start.wav', function(buffer){
+									startSound.setBuffer(buffer);
+									startSound.setVolume(0.5);
+									startSound.play();
+							});
+					}
+
+					// launch new missile every 'missileInterval'
+					if(count % missileInterval == 0){
+							missile = new THREE.Mesh(missileGeometry, missileMaterial);
+
+							missile.position.x = randomInt(-25, 25);	// random integer between -25 and 25
+							missile.position.y = 15;									// start above top of the screen
+
+							missile.target = targets[randomInt(0, targets.length)];	// choose random target
+							missile.slope = (missile.target.position.y - missile.position.y) / (missile.target.position.x - missile.position.x);
+							missile.rotation.z = (((missile.slope >= 0)? 90 : 270) * Math.PI / 180) + Math.atan(missile.slope);			// align missile toward target
+
+							scene.add(missile);				// add to scene
+							missiles.push(missile);		// add to missiles array
+					}
+
+					// split a random missile every 'splitInterval'
+					if(count % splitInterval == missileInterval && missiles.length!= 0){
+							randomMissile = missiles[randomInt(0, missiles.length)];	// choose random missile to split
+
+							missile = new THREE.Mesh(missileGeometry, missileMaterial);
+							missile.position.x = randomMissile.position.x;							// start at same position as chosen missile
+							missile.position.y = randomMissile.position.y;
+
+							missile.target = targets[randomInt(0, targets.length)];	   // choose random target
+							missile.slope = (missile.target.position.y - missile.position.y) / (missile.target.position.x - missile.position.x);
+							missile.rotation.z = (((missile.slope >= 0)? 90 : 270) * Math.PI / 180) + Math.atan(missile.slope);			// align missile toward target
+
+							scene.add(missile);
+							missiles.push(missile);
+					}
+
+					if(count % spaceshipInterval == spaceshipInterval-1){
+							spaceship = new THREE.Mesh(spaceshipGeometry, spaceshipMaterial);
+							spaceship.scale.x = 2;
+							spaceship.position.x = 30;
+							spaceship.position.y = randomInt(0, 13);
+
+							scene.add(spaceship);
+							spaceships.push(spaceship);
+					}
+
+					removeMissileIdx = [];
+					removeAntiMissileIdx = [];
+					removeExplosionsIdx = [];
+					removeSpaceshipIdx = [];
+
+					// update missile positions
+					for(var i=0; i<missiles.length; i++){
+							missiles[i].position.y -= missileSpeed;
+							missiles[i].position.x -= missileSpeed / missiles[i].slope;
+
+							if(missiles[i].position.y <= -15){		// remove inactive missiles from scene
+									scene.remove(missiles[i]);
+									removeMissileIdx.push(i);
+							}
+					}
+
+					// remove all destroyed missiles from array
+					for(var i=removeMissileIdx.length-1; i >= 0; i--){
+							missiles.splice(removeMissileIdx[i], 1);
+					}
+
+					// update anti-missile positions
+					for(var i=0; i< antiMissiles.length; i++){
+							antiMissiles[i].position.y += antiMissileSpeed;
+							antiMissiles[i].position.x += antiMissileSpeed / antiMissiles[i].slope;
+
+							if(antiMissiles[i].position.y >= antiMissiles[i].targetY){	// remove inactive anti-missiles from scene
+									scene.remove(antiMissiles[i]);
+									removeAntiMissileIdx.push(i);
+							}
+					}
+
+					// remove all destroyed anti-missiles from array
+					for(var i=removeAntiMissileIdx.length-1; i>=0; i--){
+							antiMissiles.splice(removeAntiMissileIdx[i], 1);
+					}
+
+					// update explosions array
+					for(var i=0; i<explosions.length; i++){
+							if(explosions[i].radius >= 2.5){
+								scene.remove(explosions[i]);
+								removeExplosionsIdx.push(i);
+							}
+							else{
+								explosions[i].scale.x += 0.1;
+								explosions[i].scale.y += 0.02;
+								explosions[i].scale.z += 0.02;
+								explosions[i].radius += 0.05;
+							}
+					}
+
+					// remove all inactive explosions from array
+					for(var i=removeExplosionsIdx.length-1; i>=0; i--){
+							explosions.splice(removeExplosionsIdx[i], 1);
+					}
+
+					// update spaceships array
+					for(var i=0; i<spaceships.length; i++){
+							spaceships[i].position.x -= spaceshipSpeed;
+
+							if(spaceships[i].position.x <= -35){
+									scene.remove(spaceships[i]);
+									removeSpaceshipIdx.push(i);
+							}
+					}
+
+					// remove all inactive spaceships
+					for(var i=removeSpaceshipIdx.length-1; i>=0; i--){
+							spaceships.splice(removeSpaceshipIdx[i], 1);
+					}
+
+
+					// find any possible collisions
+					removeMissileIdx = [];
+					removeAntiMissileIdx = [];
+
+					for(var i=0; i<missiles.length; i++){
+
+							// if missile hits its target, then destroy both
+							if(doIntersect(missiles[i], missiles[i].target)){
+									// add explosion
+									explosion = new THREE.Mesh(explosionGeometry, explosionMaterial);
+									explosion.radius = 0.6;
+									explosion.position.x = missiles[i].position.x;
+									explosion.position.y = -10;
+									scene.add(explosion);
+									explosions.push(explosion);
+
+									destroyAudioLoader.load('sounds/destroy.wav', function(buffer){
+											destroySound.setBuffer(buffer);
+											destroySound.setVolume(0.5);
+											destroySound.play();
+									});
+
+									// remove objects that have collided
+									scene.remove(missiles[i]);
+									scene.remove(missiles[i].target);
+									removeMissileIdx.push(i);
+
+									// replace with destroyed city object
+									destroyedCity = new THREE.Mesh(destroyedCityGeometry, destroyedCityMaterial);
+									destroyedCity.position.x = missiles[i].target.position.x;
+									destroyedCity.position.y = -11;
+									scene.add(destroyedCity);
+
+									var targetIdx = targets.indexOf(missiles[i].target);
+									var sourceIdx = sources.indexOf(missiles[i].target)
+									if(targetIdx > -1)	targets.splice(targetIdx, 1);
+									if(sourceIdx > -1)	sources.splice(sourceIdx, 1);
+
+									if(targets.length == 0){		// end game
+											renderer.render(scene, camera);
+											var div = document.createElement("div");
+											div.setAttribute("id", "stop");
+											div.innerHTML = "GAME OVER!!<br>Final Score: "+score;
+											document.body.appendChild(div);
+											return;
+									}
+									continue;
+							}
+
+							// if anti-missiles hits a missile, then destroy both
+							for(var j=0; j<antiMissiles.length; j++){
+									if(doIntersect(missiles[i], antiMissiles[j])){
+											// add explosion
+											explosion = new THREE.Mesh(explosionGeometry, explosionMaterial);
+											explosion.radius = 0.6;
+											explosion.position.x = antiMissiles[j].position.x;
+											explosion.position.y = antiMissiles[j].position.y;
+											scene.add(explosion);
+											explosions.push(explosion);
+
+											explosionAudioLoader.load('sounds/explosion.wav', function(buffer){
+													explosionSound.setBuffer(buffer);
+													explosionSound.setVolume(0.5);
+													explosionSound.play();
+											});
+
+											// remove objects
+											scene.remove(missiles[i]);
+											scene.remove(antiMissiles[j]);
+											removeMissileIdx.push(i);
+											removeAntiMissileIdx.push(j);
+
+											//update Score
+											score += 10;
+											document.getElementById("score").innerHTML = "Score: "+score;
+									}
+							}
+					}
+
+					// remove all destroyed missiles from array
+					for(var i=removeMissileIdx.length-1; i >= 0; i--){
+							missiles.splice(removeMissileIdx[i], 1);
+					}
+
+					// remove all destroyed anti-missiles from array
+					for(var i=removeAntiMissileIdx.length-1; i>=0; i--){
+							antiMissiles.splice(removeAntiMissileIdx[i], 1);
+					}
+
+					// find any collisions between anti-missiles and spaceships
+					removeAntiMissileIdx = [];
+					removeSpaceshipIdx = [];
+					for(var i=0; i<spaceships.length; i++){
+							for(var j=0; j<antiMissiles.length; j++){
+									// if anti-missiles hits a spaceship, then destroy both
+									if(doIntersect(spaceships[i], antiMissiles[j])){
+											// add explosion
+											explosion = new THREE.Mesh(explosionGeometry, explosionMaterial);
+											explosion.radius = 0.6;
+											explosion.position.x = antiMissiles[j].position.x;
+											explosion.position.y = antiMissiles[j].position.y;
+											scene.add(explosion);
+											explosions.push(explosion);
+
+											explosionAudioLoader.load('sounds/explosion.wav', function(buffer){
+													explosionSound.setBuffer(buffer);
+													explosionSound.setVolume(0.5);
+													explosionSound.play();
+											});
+
+											// remove objects
+											scene.remove(spaceships[i]);
+											scene.remove(antiMissiles[j]);
+											removeSpaceshipIdx.push(i);
+											removeAntiMissileIdx.push(j);
+
+											//update Score
+											score += 100;
+											document.getElementById("score").innerHTML = "Score: "+score;
+									}
+							}
+					}
+
+					// remove all destroyed spaceships from array
+					for(var i=removeSpaceshipIdx.length-1; i>=0; i--){
+							spaceships.splice(removeSpaceshipIdx[i], 1);
+					}
+
+					// remove all destroyed anti-missiles from array
+					for(var i=removeAntiMissileIdx.length-1; i>=0; i--){
+							antiMissiles.splice(removeAntiMissileIdx[i], 1);
+					}
+
+          id = requestAnimationFrame(render);
+          renderer.render(scene, camera);
+					count++;
+        }
+
+				// returns a random integer in the range (a, b)
+				function randomInt(a, b){
+						return Math.floor(Math.random() * (b - a)) + a;
+				}
+
+				// returns true if the two givn objects intersect, false otherwise
+				var intersectionThreshold = 1.2;
+				function doIntersect(object1, object2){
+						var x1 = object1.position.x;
+						var y1 = object1.position.y;
+						var x2 = object2.position.x;
+						var y2 = object2.position.y;
+
+						var distance = Math.sqrt((x1-x2)*(x1-x2) + (y1-y2)*(y1-y2));
+
+						return (distance <= intersectionThreshold);
+				}
+
+				// launch anti ballistic missile on mouse click
+				canvas.onclick = function(event){
+					if(!sources.length == 0 && !document.getElementById("startB")){
+						antiMissile = new THREE.Mesh(antiMissileGeometry, antiMissileMaterial);
+
+						// convert clicked position to corresponding world coordinates
+						antiMissile.targetX = ((event.pageX / window.innerWidth) * 2 * Xlim) - Xlim;
+						antiMissile.targetY = -1 *(((event.pageY / window.innerHeight) * 2 * Ylim) - Ylim);
+
+						// choose closest battery
+						var idx = 0;
+						var deltaX = 10000;
+						for(var i=0; i<sources.length; i++){
+								if(Math.abs(sources[i].position.x - antiMissile.targetX) < deltaX){
+										deltaX = Math.abs(sources[i].position.x - antiMissile.targetX);
+										idx = i;
+								}
+						}
+						source = sources[idx];
+
+						// start at source position
+						antiMissile.position.x = source.position.x;
+						antiMissile.position.y = source.position.y;
+
+						// move towards clicked position
+						antiMissile.slope = (antiMissile.targetY - antiMissile.position.y) / (antiMissile.targetX - antiMissile.position.x);
+						antiMissile.rotation.z = (((antiMissile.slope >= 0)? -90 : 90) * Math.PI / 180) + Math.atan(antiMissile.slope);
+
+						scene.add(antiMissile);
+						antiMissiles.push(antiMissile);
+
+						launchAudioLoader.load('sounds/launch.flac', function(buffer){
+								launchSound.setBuffer(buffer);
+								launchSound.setVolume(0.5);
+								launchSound.play();
+						});
+					}
+				};
+		</script>
+	</body>
+</html>
